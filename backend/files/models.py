@@ -30,8 +30,11 @@ class File(models.Model):
     file_type = models.CharField(max_length=100)
     size = models.BigIntegerField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
-    file_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)  # SHA-256 hash
+    file_hash = models.CharField(max_length=64, null=True, blank=True)  # SHA-256 hash (not unique anymore)
     owner = models.ForeignKey(User, on_delete=models.CASCADE)  # Associate with user (required)
+    # Add fields to support duplicate file references
+    is_duplicate = models.BooleanField(default=False)
+    original_file_ref = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='duplicate_files')
 
     class Meta:
         ordering = ['-uploaded_at']
@@ -50,6 +53,9 @@ class File(models.Model):
         return sha256_hash.hexdigest()
 
     def save(self, *args, **kwargs):
+        # Calculate hash if it doesn't exist
+        if not self.file_hash and self.file:
+            self.file_hash = self.calculate_file_hash()
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -59,9 +65,21 @@ class File(models.Model):
 # Signal to delete the file from filesystem when the model instance is deleted
 @receiver(post_delete, sender=File)
 def delete_file_from_storage(sender, instance, **kwargs):
+    # Only delete the physical file if no other records reference it
     if instance.file:
-        if os.path.isfile(instance.file.path):
-            os.remove(instance.file.path)
+        # If this is a duplicate file record
+        if instance.is_duplicate and instance.original_file_ref:
+            # Don't delete the physical file since it's still referenced by the original
+            # and potentially other duplicates
+            pass
+        else:
+            # This is an original file record (not a duplicate)
+            # Check if there are any duplicate records that reference this original file
+            duplicate_count = File.objects.filter(original_file_ref=instance).count()
+            if duplicate_count == 0:
+                # No duplicates reference this original file, safe to delete the physical file
+                if os.path.isfile(instance.file.path):
+                    os.remove(instance.file.path)
 
 
 # Signal to create user profile when a user is created
