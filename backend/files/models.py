@@ -1,4 +1,5 @@
 import os
+import hashlib
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
@@ -19,9 +20,26 @@ class File(models.Model):
     file_type = models.CharField(max_length=100)
     size = models.BigIntegerField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    file_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)  # SHA-256 hash
 
     class Meta:
         ordering = ['-uploaded_at']
+
+    def calculate_file_hash(self):
+        """Calculate SHA-256 hash of the file content"""
+        if not self.file:
+            return None
+
+        sha256_hash = hashlib.sha256()
+        # Open the file and read it in chunks to handle large files efficiently
+        with self.file.open('rb') as f:
+            # Read the file in chunks to avoid memory issues with large files
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        return sha256_hash.hexdigest()
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.original_filename
