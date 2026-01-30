@@ -60,15 +60,21 @@ def api_root(request):
     return Response(content)
 
 class FileViewSet(viewsets.ModelViewSet):
-    queryset = File.objects.all()
     serializer_class = FileSerializer
     permission_classes = [IsAuthenticated]  # Require authentication
 
     def get_queryset(self):
-        # Allow users to only see their own files
-        if self.request.user.is_authenticated:
-            return File.objects.filter(owner=self.request.user)
-        return File.objects.none()
+        # Start with the user's files
+        queryset = File.objects.filter(owner=self.request.user) if self.request.user.is_authenticated else File.objects.none()
+
+        # Get the search query from request parameters
+        search_query = self.request.query_params.get('search', None)
+
+        if search_query is not None:
+            # Filter by filename (case-insensitive partial match)
+            queryset = queryset.filter(original_filename__icontains=search_query)
+
+        return queryset
 
     def create(self, request, *args, **kwargs):
         file_obj = request.FILES.get('file')

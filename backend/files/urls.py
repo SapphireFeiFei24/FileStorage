@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import FileViewSet, login_view, logout_view, api_root
 
 router = DefaultRouter()
-router.register(r'files', FileViewSet)
+router.register(r'files', FileViewSet, basename='File')
 
 urlpatterns = [
     path('', include(router.urls)),
