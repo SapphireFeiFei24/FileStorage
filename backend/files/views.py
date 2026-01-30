@@ -165,6 +165,29 @@ class FileViewSet(viewsets.ModelViewSet):
         if not file_obj:
             return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Get user's storage limit
+        try:
+            storage_limit_bytes = request.user.profile.storage_limit_mb * 1024 * 1024
+        except AttributeError:
+            # If profile doesn't exist, create it with default limit
+            profile, created = UserProfile.objects.get_or_create(user=request.user, defaults={'storage_limit_mb': 10})
+            storage_limit_bytes = profile.storage_limit_mb * 1024 * 1024
+
+        # Calculate current storage used after deduplication
+        user_files = File.objects.filter(owner=request.user)
+        unique_hashes = {}
+        for file in user_files:
+            if file.file_hash and file.file_hash not in unique_hashes:
+                unique_hashes[file.file_hash] = file.size
+        current_storage_used = sum(unique_hashes.values())
+
+        # Check if the new file would exceed storage quota
+        if current_storage_used + file_obj.size > storage_limit_bytes:
+            return Response(
+                {'error': 'Storage Quota Exceeded'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         # Calculate hash of the incoming file to check for duplicates
         sha256_hash = hashlib.sha256()
 
@@ -184,6 +207,10 @@ class FileViewSet(viewsets.ModelViewSet):
                 'warning': f'We\'ve processed this upload, but the same file already exists as "{existing_file.original_filename}". No duplicate was stored.',
                 'existing_file': FileSerializer(existing_file).data
             }
+            # Calculate remaining storage after considering deduplication
+            remaining_storage = storage_limit_bytes - current_storage_used
+            response_data['remaining_storage_bytes'] = remaining_storage
+            response_data['storage_usage_percentage'] = round((current_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
             return Response(response_data, status=status.HTTP_200_OK)
 
         # Reset the file pointer to the beginning for saving
@@ -196,7 +223,6 @@ class FileViewSet(viewsets.ModelViewSet):
             content_type=file_obj.content_type
         )
 
-        # Store the file_hash in the serializer context so perform_create can access it
         data = {
             'file': new_file_obj,
             'original_filename': file_obj.name,
@@ -212,8 +238,17 @@ class FileViewSet(viewsets.ModelViewSet):
             serializer.file_hash = file_hash
             self.perform_create(serializer)
 
+            # Calculate remaining storage after successful upload
+            new_current_storage = current_storage_used + file_obj.size
+            remaining_storage = storage_limit_bytes - new_current_storage
+
+            # Add storage info to the response
+            response_data = serializer.data
+            response_data['remaining_storage_bytes'] = remaining_storage
+            response_data['storage_usage_percentage'] = round((new_current_storage / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
+
             headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+            return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
         except Exception as e:
             # Handle other potential errors
             import traceback
