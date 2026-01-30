@@ -139,6 +139,12 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.TokenAuthentication',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'files.throttles.ConfigurableUserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'user': '2/sec',  # Default: 2 requests per second per user (fallback)
+    },
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
         'rest_framework.parsers.MultiPartParser',
