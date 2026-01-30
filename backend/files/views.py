@@ -67,12 +67,49 @@ class FileViewSet(viewsets.ModelViewSet):
         # Start with the user's files
         queryset = File.objects.filter(owner=self.request.user) if self.request.user.is_authenticated else File.objects.none()
 
-        # Get the search query from request parameters
+        # Get query parameters
         search_query = self.request.query_params.get('search', None)
+        file_type = self.request.query_params.get('file_type', None)
+        min_size = self.request.query_params.get('min_size', None)
+        max_size = self.request.query_params.get('max_size', None)
+        start_date = self.request.query_params.get('start_date', None)
+        end_date = self.request.query_params.get('end_date', None)
 
+        # Apply search filter
         if search_query is not None:
-            # Filter by filename (case-insensitive partial match)
             queryset = queryset.filter(original_filename__icontains=search_query)
+
+        # Apply file type filter
+        if file_type is not None:
+            queryset = queryset.filter(file_type__icontains=file_type)
+
+        # Apply size filters
+        if min_size is not None:
+            try:
+                min_size_int = int(min_size)
+                queryset = queryset.filter(size__gte=min_size_int)
+            except ValueError:
+                pass  # Ignore invalid size values
+
+        if max_size is not None:
+            try:
+                max_size_int = int(max_size)
+                queryset = queryset.filter(size__lte=max_size_int)
+            except ValueError:
+                pass  # Ignore invalid size values
+
+        # Apply date filters
+        if start_date is not None:
+            from django.utils.dateparse import parse_datetime
+            parsed_date = parse_datetime(start_date)
+            if parsed_date:
+                queryset = queryset.filter(uploaded_at__gte=parsed_date)
+
+        if end_date is not None:
+            from django.utils.dateparse import parse_datetime
+            parsed_date = parse_datetime(end_date)
+            if parsed_date:
+                queryset = queryset.filter(uploaded_at__lte=parsed_date)
 
         return queryset
 
