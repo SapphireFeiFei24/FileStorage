@@ -1,6 +1,9 @@
 from django.shortcuts import render
-from rest_framework import viewsets, status
+from django.contrib.auth import authenticate, login, logout
+from rest_framework import viewsets, status, views
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.decorators import api_view, permission_classes
 from .models import File
 from .serializers import FileSerializer
 from io import BytesIO
@@ -9,9 +12,63 @@ import hashlib
 
 # Create your views here.
 
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+
+def login_view(request):
+    if request.method == 'GET':
+        # Render a login form for GET requests
+        return render(request, 'login.html', {})
+    elif request.method == 'POST':
+        # Handle login for POST requests
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+
+        user = authenticate(username=username, password=password)
+        if user:
+            login(request, user)
+            if request.accepts('application/json'):
+                return JsonResponse({'detail': 'Login successful'})
+            else:
+                # Redirect or return a success page
+                return render(request, 'login_success.html', {'user': user})
+        else:
+            if request.accepts('application/json'):
+                return JsonResponse({'detail': 'Invalid credentials'}, status=401)
+            else:
+                return render(request, 'login.html', {'error': 'Invalid credentials'})
+
+@api_view(['POST'])
+def logout_view(request):
+    logout(request)
+    return Response({'detail': 'Logout successful'})
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def api_root(request):
+    """
+    Root endpoint for the API.
+    """
+    content = {
+        'message': 'Welcome to the File Vault API',
+        'login': 'POST /api/login/',
+        'logout': 'POST /api/logout/',
+        'files': 'GET/POST /api/files/ (requires authentication)',
+    }
+    return Response(content)
+
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
+    permission_classes = [IsAuthenticated]  # Require authentication
+
+    def get_queryset(self):
+        # Allow users to only see their own files
+        if self.request.user.is_authenticated:
+            return File.objects.filter(owner=self.request.user)
+        return File.objects.none()
 
     def create(self, request, *args, **kwargs):
         file_obj = request.FILES.get('file')
@@ -74,8 +131,14 @@ class FileViewSet(viewsets.ModelViewSet):
             return Response({'error': 'An error occurred while processing the file'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def perform_create(self, serializer):
-        # Save the instance first (without file_hash)
-        instance = serializer.save()
+        # Only proceed if user is authenticated
+        if not self.request.user.is_authenticated:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Authentication required to upload files.")
+
+        # Assign the authenticated user as the owner
+        instance = serializer.save(owner=self.request.user)
+
         # Get the file_hash from the serializer if it exists
         file_hash = getattr(serializer, 'file_hash', None)
 

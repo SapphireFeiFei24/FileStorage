@@ -3,6 +3,7 @@ import hashlib
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.contrib.auth.models import User
 import uuid
 
 
@@ -21,6 +22,7 @@ class File(models.Model):
     size = models.BigIntegerField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
     file_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)  # SHA-256 hash
+    owner = models.ForeignKey(User, on_delete=models.CASCADE)  # Associate with user (required)
 
     class Meta:
         ordering = ['-uploaded_at']

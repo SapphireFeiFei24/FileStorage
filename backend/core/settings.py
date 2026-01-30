@@ -39,6 +39,7 @@ INSTALLED_APPS = [
   "django.contrib.messages",
   "django.contrib.staticfiles",
   "rest_framework",
+  "rest_framework.authtoken",  # Add this for token authentication
   "files",
 ]
 
@@ -58,7 +59,7 @@ ROOT_URLCONF = "core.urls"
 TEMPLATES = [
   {
     "BACKEND": "django.template.backends.django.DjangoTemplates",
-    "DIRS": [],
+    "DIRS": [os.path.join(BASE_DIR, 'templates')],
     "APP_DIRS": True,
     "OPTIONS": {
       "context_processors": [
@@ -134,8 +135,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # REST Framework settings
 REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny'
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
     ],
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
