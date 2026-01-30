@@ -14,6 +14,14 @@ def file_upload_path(instance, filename):
     return os.path.join('uploads', filename)
 
 
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    storage_limit_mb = models.IntegerField(default=10)  # Default 10 MB storage limit
+
+    def __str__(self):
+        return f"{self.user.username}'s Profile"
+
+
 class File(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     file = models.FileField(upload_to=file_upload_path)
@@ -53,3 +61,10 @@ def delete_file_from_storage(sender, instance, **kwargs):
     if instance.file:
         if os.path.isfile(instance.file.path):
             os.remove(instance.file.path)
+
+
+# Signal to create user profile when a user is created
+@receiver(models.signals.post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        UserProfile.objects.create(user=instance)
