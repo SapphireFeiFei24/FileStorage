@@ -4,7 +4,7 @@ from rest_framework import viewsets, status, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view, permission_classes
-from .models import File
+from .models import File, UserProfile
 from .serializers import FileSerializer
 from io import BytesIO
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -56,8 +56,55 @@ def api_root(request):
         'login': 'POST /api/login/',
         'logout': 'POST /api/logout/',
         'files': 'GET/POST /api/files/ (requires authentication)',
+        'storage_stats': 'GET /api/files/storage_stats/ (requires authentication)',
     }
     return Response(content)
+
+@api_view(['GET'])
+def storage_stats(request):
+    # Get storage statistics for the authenticated user
+    if not request.user.is_authenticated:
+        return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Get all files for the current user
+    user_files = File.objects.filter(owner=request.user)
+
+    # Calculate original storage (sum of all file sizes)
+    original_storage_used = sum(file.size for file in user_files)
+
+    # Calculate actual storage used after deduplication
+    # Group files by hash and sum only unique files
+    unique_hashes = {}
+    for file in user_files:
+        if file.file_hash and file.file_hash not in unique_hashes:
+            unique_hashes[file.file_hash] = file.size
+
+    total_storage_used = sum(unique_hashes.values())
+
+    # Calculate storage savings
+    storage_savings = original_storage_used - total_storage_used
+
+    # Calculate savings percentage
+    savings_percentage = 0
+    if original_storage_used > 0:
+        savings_percentage = (storage_savings / original_storage_used) * 100
+
+    # Get user's storage limit in bytes
+    try:
+        storage_limit_bytes = request.user.profile.storage_limit_mb * 1024 * 1024
+    except AttributeError:
+        # If profile doesn't exist, create it with default limit
+        profile, created = UserProfile.objects.get_or_create(user=request.user, defaults={'storage_limit_mb': 10})
+        storage_limit_bytes = profile.storage_limit_mb * 1024 * 1024
+
+    return Response({
+        'total_storage_used': total_storage_used,
+        'original_storage_used': original_storage_used,
+        'storage_savings': storage_savings,
+        'savings_percentage': round(savings_percentage, 2),
+        'storage_limit_bytes': storage_limit_bytes,
+        'storage_usage_percentage': round((total_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
+    })
 
 class FileViewSet(viewsets.ModelViewSet):
     serializer_class = FileSerializer
