@@ -73,12 +73,11 @@ def storage_stats(request):
     storage_limit_bytes = profile.storage_limit_mb * 1024 * 1024
 
     return Response({
+        'user_id': request.user.id,
         'total_storage_used': actual_storage_after_deduplication,  # Actual storage used after deduplication
         'original_storage_used': original_storage_used,  # Logical storage without deduplication
         'storage_savings': storage_savings,
         'savings_percentage': round(savings_percentage, 2),
-        'storage_limit_bytes': storage_limit_bytes,
-        'storage_usage_percentage': round((profile.current_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0  # Based on logical usage
     })
 
 class FileViewSet(viewsets.ModelViewSet):
