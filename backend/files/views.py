@@ -114,51 +114,40 @@ class FileViewSet(viewsets.ModelViewSet):
         # Start with the user's files
         queryset = File.objects.filter(owner=self.request.user) if self.request.user.is_authenticated else File.objects.none()
 
-        # Get query parameters
-        search_query = self.request.query_params.get('search', None)
-        file_type = self.request.query_params.get('file_type', None)
-        min_size = self.request.query_params.get('min_size', None)
-        max_size = self.request.query_params.get('max_size', None)
-        start_date = self.request.query_params.get('start_date', None)
-        end_date = self.request.query_params.get('end_date', None)
+        # Define filter mappings: parameter name -> (field lookup, transform function)
+        filters = {
+            'search': ('original_filename__icontains', None),
+            'file_type': ('file_type__icontains', None),
+            'min_size': ('size__gte', self._safe_int_conversion),
+            'max_size': ('size__lte', self._safe_int_conversion),
+            'start_date': ('uploaded_at__gte', self._parse_iso_datetime),
+            'end_date': ('uploaded_at__lte', self._parse_iso_datetime),
+        }
 
-        # Apply search filter
-        if search_query is not None:
-            queryset = queryset.filter(original_filename__icontains=search_query)
-
-        # Apply file type filter
-        if file_type is not None:
-            queryset = queryset.filter(file_type__icontains=file_type)
-
-        # Apply size filters
-        if min_size is not None:
-            try:
-                min_size_int = int(min_size)
-                queryset = queryset.filter(size__gte=min_size_int)
-            except ValueError:
-                pass  # Ignore invalid size values
-
-        if max_size is not None:
-            try:
-                max_size_int = int(max_size)
-                queryset = queryset.filter(size__lte=max_size_int)
-            except ValueError:
-                pass  # Ignore invalid size values
-
-        # Apply date filters
-        if start_date is not None:
-            from django.utils.dateparse import parse_datetime
-            parsed_date = parse_datetime(start_date)
-            if parsed_date:
-                queryset = queryset.filter(uploaded_at__gte=parsed_date)
-
-        if end_date is not None:
-            from django.utils.dateparse import parse_datetime
-            parsed_date = parse_datetime(end_date)
-            if parsed_date:
-                queryset = queryset.filter(uploaded_at__lte=parsed_date)
+        # Apply filters based on query parameters
+        for param_name, (field_lookup, transform_fn) in filters.items():
+            param_value = self.request.query_params.get(param_name, None)
+            if param_value is not None:
+                if transform_fn:
+                    transformed_value = transform_fn(param_value)
+                    if transformed_value is not None:  # Only apply filter if transformation was successful
+                        queryset = queryset.filter(**{field_lookup: transformed_value})
+                else:
+                    queryset = queryset.filter(**{field_lookup: param_value})
 
         return queryset
+
+    def _safe_int_conversion(self, value):
+        """Safely convert a string value to integer, returning None if conversion fails."""
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    def _parse_iso_datetime(self, value):
+        """Parse ISO 8601 datetime string, returning None if parsing fails."""
+        from django.utils.dateparse import parse_datetime
+        return parse_datetime(value)
 
     def create(self, request, *args, **kwargs):
         file_obj = request.FILES.get('file')
