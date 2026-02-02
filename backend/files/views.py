@@ -2,7 +2,7 @@ from django.shortcuts import render
 from rest_framework import viewsets, status, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, action
 from .models import File, UserProfile
 from .serializers import FileSerializer
 from io import BytesIO
@@ -80,9 +80,35 @@ def storage_stats(request):
         'savings_percentage': round(savings_percentage, 2),
     })
 
+
+
 class FileViewSet(viewsets.ModelViewSet):
     serializer_class = FileSerializer
     permission_classes = [IsAuthenticated]  # Require authentication
+
+    @action(detail=False, methods=['get'], url_path='file_types')
+    def file_types(self, request):
+        """
+        Get list of unique file types (MIME types) for the authenticated user.
+        """
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Get user's profile (create if doesn't exist)
+        profile, created = UserProfile.objects.get_or_create(
+            user=request.user,
+            defaults={'storage_limit_mb': 10, 'api_calls_per_second': 2, 'current_storage_used': 0, 'file_types': []}
+        )
+
+        # If file_types is empty, recalculate it
+        if not profile.file_types:
+            unique_file_types = File.objects.filter(owner=request.user).values_list('file_type', flat=True).distinct()
+            profile.file_types = list(unique_file_types)
+            profile.save(update_fields=['file_types'])
+
+        return Response({
+            'file_types': profile.file_types
+        })
 
     def get_queryset(self):
         # Start with the user's files
@@ -209,7 +235,12 @@ class FileViewSet(viewsets.ModelViewSet):
         # Update the user's storage usage (add the new file's size)
         # This represents the logical storage usage (sum of all files regardless of duplication)
         profile.current_storage_used += file_obj.size
-        profile.save(update_fields=['current_storage_used'])
+
+        # Update the file types list if this file type is new
+        if file_obj.content_type not in profile.file_types:
+            profile.file_types.append(file_obj.content_type)
+
+        profile.save(update_fields=['current_storage_used', 'file_types'])
 
         # Calculate remaining storage after successful upload
         remaining_storage = storage_limit_bytes - profile.current_storage_used
@@ -235,7 +266,18 @@ class FileViewSet(viewsets.ModelViewSet):
         if profile.current_storage_used < 0:
             profile.current_storage_used = 0  # Prevent negative storage usage
 
-        profile.save(update_fields=['current_storage_used'])
+        # Remove the file type from the list if no other files of this type exist
+        file_type_to_remove = instance.file_type
+        # Check if there are other files with the same type for this user
+        other_files_with_type = File.objects.filter(
+            owner=instance.owner,
+            file_type=file_type_to_remove
+        ).exclude(id=instance.id).exists()
+
+        if not other_files_with_type and file_type_to_remove in profile.file_types:
+            profile.file_types = [ft for ft in profile.file_types if ft != file_type_to_remove]
+
+        profile.save(update_fields=['current_storage_used', 'file_types'])
 
         # Call the parent method to actually delete the instance
         super().perform_destroy(instance)
