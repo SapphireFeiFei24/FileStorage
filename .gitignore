@@ -1,0 +1,9 @@
+backend/files/migrations
+backend/media/uploads/*
+backend/data/db.sqlite3
+backend/files/__pycache__
+backend/files/migrations/__pycache__
+backend/tests/__pycache__
+backend/core/__pycache__/
+backend/.bashrc
+backend/.env
