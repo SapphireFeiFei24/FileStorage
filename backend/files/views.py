@@ -17,28 +17,24 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_protect
 from django.utils.decorators import method_decorator
 
+@api_view(['GET', 'POST'])
 def login_view(request):
     if request.method == 'GET':
-        # Render a login form for GET requests
-        return render(request, 'login.html', {})
+        # For API requests, return a simple response indicating login is needed
+        # For browser requests, we'd typically serve HTML, but in API context,
+        # we'll return a response that indicates the login endpoint
+        return Response({'message': 'Send POST request with username and password to login'})
     elif request.method == 'POST':
         # Handle login for POST requests
-        username = request.POST.get('username')
-        password = request.POST.get('password')
+        username = request.data.get('username')
+        password = request.data.get('password')
 
         user = authenticate(username=username, password=password)
         if user:
             login(request, user)
-            if request.accepts('application/json'):
-                return JsonResponse({'detail': 'Login successful'})
-            else:
-                # Redirect or return a success page
-                return render(request, 'login_success.html', {'user': user})
+            return Response({'detail': 'Login successful'})
         else:
-            if request.accepts('application/json'):
-                return JsonResponse({'detail': 'Invalid credentials'}, status=401)
-            else:
-                return render(request, 'login.html', {'error': 'Invalid credentials'})
+            return Response({'detail': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
 
 @api_view(['POST'])
 def logout_view(request):
@@ -66,23 +62,34 @@ def storage_stats(request):
     if not request.user.is_authenticated:
         return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
 
+    # Get user's profile (create if doesn't exist)
+    profile, created = UserProfile.objects.get_or_create(
+        user=request.user,
+        defaults={'storage_limit_mb': 10, 'api_calls_per_second': 2, 'current_storage_used': 0}
+    )
+
     # Get all files for the current user
     user_files = File.objects.filter(owner=request.user)
 
     # Calculate original storage (sum of all file sizes)
     original_storage_used = sum(file.size for file in user_files)
 
-    # Calculate actual storage used after deduplication
-    # Group files by hash and sum only unique files
+    # Use the stored current_storage_used value which represents logical storage usage
+    # (sum of all files regardless of duplication)
+    total_storage_used = profile.current_storage_used
+
+    # Since current_storage_used represents logical usage (sum of all files),
+    # there are no storage savings to calculate in this model
+    # The actual storage used after deduplication would need to be calculated separately
+    actual_storage_after_deduplication = 0
     unique_hashes = {}
     for file in user_files:
         if file.file_hash and file.file_hash not in unique_hashes:
             unique_hashes[file.file_hash] = file.size
-
-    total_storage_used = sum(unique_hashes.values())
+    actual_storage_after_deduplication = sum(unique_hashes.values())
 
     # Calculate storage savings
-    storage_savings = original_storage_used - total_storage_used
+    storage_savings = original_storage_used - actual_storage_after_deduplication
 
     # Calculate savings percentage
     savings_percentage = 0
@@ -90,20 +97,15 @@ def storage_stats(request):
         savings_percentage = (storage_savings / original_storage_used) * 100
 
     # Get user's storage limit in bytes
-    try:
-        storage_limit_bytes = request.user.profile.storage_limit_mb * 1024 * 1024
-    except AttributeError:
-        # If profile doesn't exist, create it with default limit
-        profile, created = UserProfile.objects.get_or_create(user=request.user, defaults={'storage_limit_mb': 10})
-        storage_limit_bytes = profile.storage_limit_mb * 1024 * 1024
+    storage_limit_bytes = profile.storage_limit_mb * 1024 * 1024
 
     return Response({
-        'total_storage_used': total_storage_used,
-        'original_storage_used': original_storage_used,
+        'total_storage_used': actual_storage_after_deduplication,  # Actual storage used after deduplication
+        'original_storage_used': original_storage_used,  # Logical storage without deduplication
         'storage_savings': storage_savings,
         'savings_percentage': round(savings_percentage, 2),
         'storage_limit_bytes': storage_limit_bytes,
-        'storage_usage_percentage': round((total_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
+        'storage_usage_percentage': round((profile.current_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0  # Based on logical usage
     })
 
 class FileViewSet(viewsets.ModelViewSet):
@@ -154,13 +156,19 @@ class FileViewSet(viewsets.ModelViewSet):
         if not file_obj:
             return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get user's storage limit
-        try:
-            storage_limit_bytes = request.user.profile.storage_limit_mb * 1024 * 1024
-        except AttributeError:
-            # If profile doesn't exist, create it with default limit
-            profile, created = UserProfile.objects.get_or_create(user=request.user, defaults={'storage_limit_mb': 10})
-            storage_limit_bytes = profile.storage_limit_mb * 1024 * 1024
+        # Get user's profile (create if doesn't exist)
+        profile, created = UserProfile.objects.get_or_create(
+            user=request.user,
+            defaults={'storage_limit_mb': 10, 'api_calls_per_second': 2, 'current_storage_used': 0}
+        )
+
+        # Check if the new file would exceed storage quota
+        storage_limit_bytes = profile.storage_limit_mb * 1024 * 1024
+        if profile.current_storage_used + file_obj.size > storage_limit_bytes:
+            return Response(
+                {'error': 'Storage Quota Exceeded'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
 
         # Calculate hash of the incoming file to check for duplicates
         sha256_hash = hashlib.sha256()
@@ -190,20 +198,13 @@ class FileViewSet(viewsets.ModelViewSet):
                 # Note: We don't set the file field for duplicates, it will be handled by the original
             )
 
-            # Calculate storage usage considering deduplication
-            user_files = File.objects.filter(owner=request.user)
-            unique_hashes = {}
-            for file in user_files:
-                if file.file_hash and file.file_hash not in unique_hashes:
-                    unique_hashes[file.file_hash] = file.size
-            current_storage_used = sum(unique_hashes.values())
-
-            remaining_storage = storage_limit_bytes - current_storage_used
+            # For duplicates, we don't increase storage usage since it's already counted
+            remaining_storage = storage_limit_bytes - profile.current_storage_used
             response_data = {
                 'warning': f'We\'ve processed this upload. A file with the same content already exists as "{existing_file.original_filename}", but this new record is created separately.',
                 'file': FileSerializer(new_file_record).data,
                 'remaining_storage_bytes': remaining_storage,
-                'storage_usage_percentage': round((current_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
+                'storage_usage_percentage': round((profile.current_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
             }
 
             # Calculate headers for the new record
@@ -212,21 +213,6 @@ class FileViewSet(viewsets.ModelViewSet):
             headers = {'Location': location}
 
             return Response(response_data, status=status.HTTP_200_OK)
-
-        # Calculate current storage used after deduplication
-        user_files = File.objects.filter(owner=request.user)
-        unique_hashes = {}
-        for file in user_files:
-            if file.file_hash and file.file_hash not in unique_hashes:
-                unique_hashes[file.file_hash] = file.size
-        current_storage_used = sum(unique_hashes.values())
-
-        # Check if the new file would exceed storage quota
-        if current_storage_used + file_obj.size > storage_limit_bytes:
-            return Response(
-                {'error': 'Storage Quota Exceeded'},
-                status=status.HTTP_429_TOO_MANY_REQUESTS
-            )
 
         # Reset the file pointer to the beginning for saving
         file_content.seek(0)
@@ -248,9 +234,13 @@ class FileViewSet(viewsets.ModelViewSet):
             owner=request.user
         )
 
+        # Update the user's storage usage (add the new file's size)
+        # This represents the logical storage usage (sum of all files regardless of duplication)
+        profile.current_storage_used += file_obj.size
+        profile.save(update_fields=['current_storage_used'])
+
         # Calculate remaining storage after successful upload
-        new_current_storage = current_storage_used + file_obj.size
-        remaining_storage = storage_limit_bytes - new_current_storage
+        remaining_storage = storage_limit_bytes - profile.current_storage_used
 
         # Serialize the created record
         serializer = FileSerializer(file_record)
@@ -258,24 +248,22 @@ class FileViewSet(viewsets.ModelViewSet):
         # Add storage info to the response
         response_data = serializer.data
         response_data['remaining_storage_bytes'] = remaining_storage
-        response_data['storage_usage_percentage'] = round((new_current_storage / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
+        response_data['storage_usage_percentage'] = round((profile.current_storage_used / storage_limit_bytes) * 100, 2) if storage_limit_bytes > 0 else 0
 
         headers = self.get_success_headers(serializer.data)
         return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
 
-    def perform_create(self, serializer):
-        # Only proceed if user is authenticated
-        if not self.request.user.is_authenticated:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Authentication required to upload files.")
+    def perform_destroy(self, instance):
+        # Update storage usage when a file is deleted
+        profile = instance.owner.profile
 
-        # Assign the authenticated user as the owner
-        instance = serializer.save(owner=self.request.user)
+        # Subtract the file's size from the user's storage usage
+        # This represents the logical storage usage (sum of all files regardless of duplication)
+        profile.current_storage_used -= instance.size
+        if profile.current_storage_used < 0:
+            profile.current_storage_used = 0  # Prevent negative storage usage
 
-        # Get the file_hash from the serializer if it exists
-        file_hash = getattr(serializer, 'file_hash', None)
+        profile.save(update_fields=['current_storage_used'])
 
-        # If we have a file_hash and the instance doesn't have one yet, update it
-        if file_hash and not instance.file_hash:
-            instance.file_hash = file_hash
-            instance.save(update_fields=['file_hash'])
+        # Call the parent method to actually delete the instance
+        super().perform_destroy(instance)

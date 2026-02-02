@@ -18,6 +18,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     storage_limit_mb = models.IntegerField(default=10)  # Default 10 MB storage limit
     api_calls_per_second = models.IntegerField(default=2)  # Default 2 API calls per second
+    current_storage_used = models.BigIntegerField(default=0)  # Track current storage usage in bytes
 
     def __str__(self):
         return f"{self.user.username}'s Profile"
