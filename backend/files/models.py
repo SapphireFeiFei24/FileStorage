@@ -28,18 +28,22 @@ class UserProfile(models.Model):
 class File(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     file = models.FileField(upload_to=file_upload_path)
-    original_filename = models.CharField(max_length=255)
+    original_filename = models.CharField(max_length=255, db_index=True)  # Index for filename search
     file_type = models.CharField(max_length=100)
     size = models.BigIntegerField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
-    file_hash = models.CharField(max_length=64, null=True, blank=True)  # SHA-256 hash (not unique anymore)
-    owner = models.ForeignKey(User, on_delete=models.CASCADE)  # Associate with user (required)
+    file_hash = models.CharField(max_length=64, null=True, blank=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, db_index=True)  # Index for user filtering
     # Add fields to support duplicate file references
     is_duplicate = models.BooleanField(default=False)
     original_file_ref = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='duplicate_files')
 
     class Meta:
         ordering = ['-uploaded_at']
+        indexes = [
+            # Composite index for user + filename searches
+            models.Index(fields=['owner', 'original_filename']),  # For user + filename searches
+        ]
 
     def calculate_file_hash(self):
         """Calculate SHA-256 hash of the file content"""
