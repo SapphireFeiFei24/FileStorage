@@ -1,5 +1,4 @@
 from django.shortcuts import render
-from django.contrib.auth import authenticate, login, logout
 from rest_framework import viewsets, status, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -17,40 +16,14 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_protect
 from django.utils.decorators import method_decorator
 
-@api_view(['GET', 'POST'])
-def login_view(request):
-    if request.method == 'GET':
-        # For API requests, return a simple response indicating login is needed
-        # For browser requests, we'd typically serve HTML, but in API context,
-        # we'll return a response that indicates the login endpoint
-        return Response({'message': 'Send POST request with username and password to login'})
-    elif request.method == 'POST':
-        # Handle login for POST requests
-        username = request.data.get('username')
-        password = request.data.get('password')
-
-        user = authenticate(username=username, password=password)
-        if user:
-            login(request, user)
-            return Response({'detail': 'Login successful'})
-        else:
-            return Response({'detail': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
-
-@api_view(['POST'])
-def logout_view(request):
-    logout(request)
-    return Response({'detail': 'Logout successful'})
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
 def api_root(request):
     """
     Root endpoint for the API.
     """
     content = {
         'message': 'Welcome to the File Vault API',
-        'login': 'POST /api/login/',
-        'logout': 'POST /api/logout/',
         'files': 'GET/POST /api/files/ (requires authentication)',
         'storage_stats': 'GET /api/files/storage_stats/ (requires authentication)',
     }

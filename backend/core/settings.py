@@ -136,8 +136,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.TokenAuthentication',
+        'files.authentication.UserIdHeaderAuthentication',  # Custom header-based authentication
     ],
     'DEFAULT_THROTTLE_CLASSES': [
         'files.throttles.ConfigurableUserRateThrottle',
