@@ -1,4 +1,4 @@
-# Abnormal File Vault
+# File Storage Management
 
 A Django-based file management application designed for efficient file handling and storage.
 
@@ -17,7 +17,6 @@ A Django-based file management application designed for efficient file handling 
 
 ## 📋 Prerequisites
 
-Before you begin, ensure you have installed:
 - Docker (20.10.x or higher) and Docker Compose (2.x or higher)
 - Python (3.9 or higher) - for local development
 
@@ -131,61 +130,3 @@ file-hub/
    rm backend/data/db.sqlite3
    python manage.py migrate
    ```
-
-# Project Submission Instructions
-
-## Preparing Your Submission
-
-1. Before creating your submission zip file, ensure:
-   - All features are implemented and working as expected
-   - All tests are passing
-   - The application runs successfully locally
-   - Remove any unnecessary files or dependencies
-   - Clean up any debug/console logs
-
-2. Create the submission zip file:
-   ```bash
-   # Activate your backend virtual environment first
-   cd backend
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   
-   # Run the submission script from the project root
-   cd ..
-   python create_submission_zip.py
-   ```
-
-   The script will:
-   - Create a zip file named `username_YYYYMMDD.zip` (e.g., `johndoe_20240224.zip`)
-   - Respect .gitignore rules to exclude unnecessary files
-   - Preserve file timestamps
-   - Show you a list of included files and total size
-   - Warn you if the zip is unusually large
-
-3. Verify your submission zip file:
-   - Extract the zip file to a new directory
-   - Ensure all necessary files are included
-   - Verify that no unnecessary files (like __pycache__, etc.) are included
-   - Test the application from the extracted files to ensure everything works
-
-## Video Documentation Requirement
-
-**Video Guidance** - Record a screen share demonstrating:
-- How you leveraged Gen AI to help build the features
-- Your prompting techniques and strategies
-- Any challenges you faced and how you overcame them
-- Your thought process in using AI effectively
-
-**IMPORTANT**: Please do not provide a demo of the application functionality. Focus only on your Gen AI usage and approach.
-
-## Submission Process
-
-1. Submit your project through this Google Form:
-   [Project Submission Form](https://forms.gle/nr6DZAX3nv6r7bru9)
-
-2. The form will require:
-   - Your project zip file (named `username_YYYYMMDD.zip`)
-   - Your video documentation
-   - Any additional notes or comments about your implementation
-
-Make sure to test the zip file and video before submitting to ensure they are complete and working as expected.
-
